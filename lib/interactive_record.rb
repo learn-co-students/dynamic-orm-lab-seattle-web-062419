@@ -3,14 +3,6 @@ require 'active_support/inflector'
 
 class InteractiveRecord
 
-    attr_accessor :name, :grade
-
-    # def initialize(id:nil, name:nil, grade:nil)
-    #     @id = id
-    #     @name = name
-    #     @grade = grade
-    # end
-
     def initialize(options={})
         options.each do |property, value|
             self.send("#{property}=", value)
@@ -22,9 +14,19 @@ class InteractiveRecord
     end
 
     def self.column_names
-        # returns by parameters including column name,
-        # if no data present, just returns column name
-        DB[:conn].execute2("SELECT * FROM students").flatten
+        # # returns by parameters including column name,
+        # # if no data present, just returns column name
+        # columns = DB[:conn].execute2("SELECT * FROM students").flatten
+        # columns
+
+        sql = "pragma table_info('#{table_name}')"
+
+        table_info = DB[:conn].execute(sql)
+        column_names = []
+        table_info.each do |row|
+            column_names << row["name"]
+        end
+        column_names.compact
     end
 
     def table_name_for_insert
@@ -37,22 +39,42 @@ class InteractiveRecord
     end
 
     def values_for_insert
-        results = []
+        # results = []
+        # self.class.column_names.each do |col_name|
+        #     results << "'#{send(col_name)}'" unless send(col_name).nil?
+        # end
+        # results.join(", ")
+
+        values = []
         self.class.column_names.each do |col_name|
-            results << "'#{send(col_name)}'" unless send(col_name).nil?
+          values << "'#{send(col_name)}'" unless send(col_name).nil?
         end
-        results.join(", ")
+        values.join(", ")
     end
 
     def save
-        sql = <<-SQL
-        INSERT INTO #{table_name_for_insert} (#{col_names_for_insert}) 
-        VALUES (#{values_for_insert})
-        SQL
- 
-        DB[:conn].execute(sql)
-        
-        @id = DB[:conn].execute("SELECT last_insert_rowid() FROM #{table_name_for_insert}")[0][0]
+        if self.id.nil? == true
+            sql = <<-SQL
+            INSERT INTO #{table_name_for_insert} (#{col_names_for_insert}) 
+            VALUES (#{values_for_insert})
+            SQL
+    
+            DB[:conn].execute(sql)
+            
+            @id = DB[:conn].execute("SELECT last_insert_rowid() FROM #{table_name_for_insert}")[0][0]
+        else
+            sql = <<-SQL
+            SELECT * 
+            FROM students
+            WHERE id = ?
+            SQL
+
+            DB[:conn].execute(sql, self.id)
+        end
+
+        # sql = "INSERT INTO #{table_name_for_insert} (#{col_names_for_insert}) VALUES (#{values_for_insert})"
+        # DB[:conn].execute(sql)
+        # @id = DB[:conn].execute("SELECT last_insert_rowid() FROM #{table_name_for_insert}")[0][0]
     end
 
     def self.find_by_name(name)
@@ -61,28 +83,37 @@ class InteractiveRecord
         FROM #{self.table_name} 
         WHERE name = '#{name}'
         SQL
-
+        
         DB[:conn].execute(sql)
     end
 
-    def self.find_by(arg)
-        # k = arg.keys[0].to_s
+    def self.find_by(attribute_hash)
+        # k = arg.keys[0]
         # v = arg.values[0]
-        # sql = <<-SQL
-        # SELECT *
-        # FROM #{self.table_name}
-        # WHERE #{k} = #{v};
-        # SQL
+        # v_i = "'#{v}'"
         
-        # DB[:conn].execute(sql, arg.keys[0].to_s, arg.values[0])
+        # if v.class == String
+        #     sql = <<-SQL
+        #     SELECT *
+        #     FROM #{self.table_name}
+        #     WHERE #{arg.keys.first} = #{v_i};
+        #     SQL
 
-        dbhash = DB[:conn].execute("select * from students")[0]
+        #     DB[:conn].execute(sql)
+        # else
+        #     sql = <<-SQL
+        #     SELECT *
+        #     FROM #{self.table_name}
+        #     WHERE #{arg.keys.first} = #{arg.values.first};
+        #     SQL
 
-        # binding.pry
-        # dbhash.select do |key, value|
-        #     if key == arg.keys[0].to_s  
-        #       DB[:conn].execute("select * from students where #{key} = #{send(arg.values[0])}")
-        #     end  
+        #     DB[:conn].execute(sql)
         # end
+        
+        value = attribute_hash.values.first
+        formatted_value = value.class == Fixnum ? value : "'#{value}'"
+        sql = "SELECT * FROM #{self.table_name} WHERE #{attribute_hash.keys.first} = #{formatted_value}"
+        DB[:conn].execute(sql)
+
     end
 end
